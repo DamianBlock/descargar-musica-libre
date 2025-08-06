@@ -1,0 +1,28 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribuciones / paquetes
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Entornos virtuales
+env/
+venv/
+ENV/
+.venv/
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+
+# Archivos de logs y bases de datos
+*.log
+*.sqlite3
+
+# Configuraciones locales
+*.env
+*.ini
