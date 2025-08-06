@@ -26,3 +26,8 @@ Thumbs.db
 # Configuraciones locales
 *.env
 *.ini
+
+# Carpeta de musica 
+Musica_NCS/
+Musica_Pixabay/
+Musica_tarareada/

@@ -1,232 +1,153 @@
 import os
+import re
+import shutil
 import time
 from selenium import webdriver
-from selenium.webdriver.edge.service import Service
-from selenium.webdriver.edge.options import Options
 from selenium.webdriver.common.by import By
+from selenium.webdriver.edge.options import Options
+from selenium.webdriver.edge.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.action_chains import ActionChains
-from selenium.webdriver.common.keys import Keys
-import yt_dlp
 
-CARPETAS = {
-    "pixabay": "Musica_Pixabay",
-    "ncs": "Musica_NCS",
-    "tararear": "Musica_Tarareada"
+# ========== CONFIGURACIÓN GENERAL ==========
+carpeta_proyecto = os.path.dirname(os.path.abspath(__file__))
+carpeta_descargas_temp = os.path.join(carpeta_proyecto, "temp_descargas")
+fuente_actual = "Pixabay"  # Puedes cambiar a "NCS" cuando se implemente
+
+carpetas_destino = {
+    "Pixabay": {
+        "voz": os.path.join(carpeta_proyecto, "Musica_Pixabay", "con_voz"),
+        "sin_voz": os.path.join(carpeta_proyecto, "Musica_Pixabay", "sin_voz"),
+    },
+    "NCS": {
+        "voz": os.path.join(carpeta_proyecto, "Musica_NCS", "con_voz"),
+        "sin_voz": os.path.join(carpeta_proyecto, "Musica_NCS", "sin_voz"),
+    }
 }
 
-DESCARGADOS_FILE = "descargados.txt"
+# ========== PALABRAS CLAVE ==========
+palabras_clave = [
+    "epic", "cinematic", "mistery", "sad", "drama", "emotional", "ambient",
+    "tense", "dark", "suspense", "dream", "fantasy", "creepy", "investigation"
+]
 
-def cargar_descargados():
-    if not os.path.exists(DESCARGADOS_FILE):
-        return set()
-    with open(DESCARGADOS_FILE, "r", encoding="utf-8") as f:
-        return set(line.strip() for line in f.readlines())
-
-def guardar_descargado(titulo):
-    with open(DESCARGADOS_FILE, "a", encoding="utf-8") as f:
-        f.write(titulo + "\n")
-
+# ========== SETUP DE CARPETAS ==========
 def crear_carpetas():
-    for fuente, carpeta_base in CARPETAS.items():
-        os.makedirs(carpeta_base, exist_ok=True)
-        os.makedirs(os.path.join(carpeta_base, "con_voz"), exist_ok=True)
-        os.makedirs(os.path.join(carpeta_base, "sin_voz"), exist_ok=True)
-    print("[DEBUG] Carpetas verificadas/creadas exitosamente.")
+    os.makedirs(carpeta_descargas_temp, exist_ok=True)
+    for fuente in carpetas_destino.values():
+        os.makedirs(fuente["voz"], exist_ok=True)
+        os.makedirs(fuente["sin_voz"], exist_ok=True)
+    print("📁 Carpetas listas.\n")
 
-def descargar_desde_pixabay():
-    descargados = cargar_descargados()
-    
+# ========== DETECTAR VOZ ==========
+def detectar_voz(nombre_archivo):
+    nombre_minusculas = nombre_archivo.lower()
+    patrones_voz = [
+        "vocals", "vocal", "voice", "sing", "with vocals", "vocal version", "feat", "ft."
+    ]
+    return any(re.search(pat, nombre_minusculas) for pat in patrones_voz)
+
+# ========== DESCARGAR DESDE PIXABAY ==========
+def descargar_pixabay(palabra):
+    print(f"🔍 Buscando: {palabra}")
+    url = f"https://pixabay.com/music/search/{palabra.replace(' ', '%20')}/"
+
     options = Options()
-    # options.add_argument("--headless")  # Descomenta para modo sin interfaz
-    options.add_argument("--disable-gpu")
-
-    download_dir = os.path.join(os.getcwd(), CARPETAS["pixabay"], "con_voz")
-    if not os.path.exists(download_dir):
-        os.makedirs(download_dir)
-
-    prefs = {
-        "download.default_directory": download_dir,
-        "download.prompt_for_download": False,
-        "download.directory_upgrade": True,
-        "safeBrowse.enabled": True
-    }
+    prefs = {"download.default_directory": carpeta_descargas_temp}
     options.add_experimental_option("prefs", prefs)
+    options.add_argument("--headless")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--no-sandbox")
 
-    service = Service(executable_path="Drivers/msedgedriver.exe")
-    driver = webdriver.Edge(service=service, options=options)
-
-    print("🔍 Buscando música en Pixabay...")
+    driver = webdriver.Edge(options=options)
+    driver.get(url)
 
     try:
-        driver.get("https://pixabay.com/es/music/")
-        time.sleep(5)
-
-        # Manejo de cookies
-        try:
-            cookie_button_text = WebDriverWait(driver, 5).until(
-                EC.element_to_be_clickable((By.XPATH, "//button[contains(.,'Aceptar todas') or contains(.,'Aceptar')]"))
-            )
-            driver.execute_script("arguments[0].click();", cookie_button_text)
-            print("✅ Cookies aceptadas.")
-            time.sleep(1)
-        except:
-            try:
-                ActionChains(driver).send_keys(Keys.ESCAPE).perform()
-            except:
-                pass
-
-        termino = input("🔤 Ingresá una palabra clave para buscar música (ej. 'épico', 'triste', etc.): ").strip()
-
-        barra_busqueda = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.NAME, "search"))
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "button[download]"))
         )
-        barra_busqueda.clear()
-        barra_busqueda.send_keys(termino)
-        barra_busqueda.submit()
-        time.sleep(3)
-
-        resultados = driver.find_elements(By.CLASS_NAME, "audioRow--nAm4Z")
-        if len(resultados) > 5:
-            resultados = resultados[:5]
-
-        print(f"🎵 Resultados encontrados: {len(resultados)}")
-
-        if not resultados:
-            print("❌ No se encontraron resultados.")
+        botones = driver.find_elements(By.CSS_SELECTOR, "button[download]")
+        if not botones:
+            print("❌ No se encontró botón de descarga.")
+            driver.quit()
             return
 
-        for i, resultado in enumerate(resultados):
-            titulo = "Título no disponible"
-            try:
-                titulo_elemento = resultado.find_element(By.CLASS_NAME, "title--7N7Nr")
-                titulo = titulo_elemento.text.strip()
-            except:
-                pass
+        botones[0].click()
+        print("⬇️ Descargando canción...")
+        time.sleep(5)
 
-            if titulo in descargados:
-                print(f"⚠️ La canción '{titulo}' ya fue descargada anteriormente. Se omite.")
-                continue
-
-            print(f"[DEBUG] Procesando pista {i+1}: {titulo}")
-
-            driver.execute_script("arguments[0].scrollIntoView(true);", resultado)
-            time.sleep(1)
-
-            actions = ActionChains(driver)
-            actions.move_to_element(resultado).perform()
-            time.sleep(2)
-
-            try:
-                download_button = WebDriverWait(resultado, 15).until(
-                    EC.element_to_be_clickable((By.XPATH, ".//button[.//div[@aria-label='Download']]"))
-                )
-            except:
-                download_button = None
-
-            if download_button:
-                try:
-                    overlay = driver.find_element(By.CSS_SELECTOR, "div.backdrop--6flEt, div.overlay--2sfQc")
-                    driver.execute_script("arguments[0].style.display='none';", overlay)
-                except:
-                    pass
-
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", download_button)
-                time.sleep(0.5)
-
-                try:
-                    download_button.click()
-                except:
-                    driver.execute_script("arguments[0].click();", download_button)
-
-                time.sleep(5)
-
-                try:
-                    pop_up_button = WebDriverWait(driver, 5).until(
-                        EC.element_to_be_clickable((By.XPATH, "//button[contains(.,'Entendido') or contains(.,'Cerrar') or contains(.,'Aceptar')]"))
-                    )
-                    driver.execute_script("arguments[0].click();", pop_up_button)
-                    time.sleep(2)
-                except:
-                    pass
-
-                print(f"✅ Descarga de '{titulo}' completada.")
-                guardar_descargado(titulo)
-            else:
-                print(f"❌ No se pudo encontrar botón de descarga para: {titulo}")
-
-    except Exception as e_general:
-        print("❌ Error general en la búsqueda:", e_general)
+    except Exception as e:
+        print(f"⚠️ Error: {e}")
     finally:
         driver.quit()
 
-def descargar_ncs(url, output_dir=None):
-    if output_dir is None:
-        output_dir = os.path.join(os.getcwd(), CARPETAS["ncs"], "con_voz")
-    os.makedirs(output_dir, exist_ok=True)
+# ========== MOVER Y CLASIFICAR ==========
+def mover_y_clasificar():
+    archivos = os.listdir(carpeta_descargas_temp)
+    if not archivos:
+        print("📭 No se descargó ningún archivo.\n")
+        return
 
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'outtmpl': os.path.join(output_dir, '%(title)s.%(ext)s'),
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
-        'quiet': False,
-        'no_warnings': True,
+    for archivo in archivos:
+        if not archivo.lower().endswith(".mp3"):
+            continue
+
+        origen = os.path.join(carpeta_descargas_temp, archivo)
+        tiene_voz = detectar_voz(archivo)
+        destino = carpetas_destino[fuente_actual]["voz" if tiene_voz else "sin_voz"]
+        shutil.move(origen, os.path.join(destino, archivo))
+        print(f"✅ Guardado en: {'con_voz' if tiene_voz else 'sin_voz'} → {archivo}")
+
+# ========== BUSCAR MUSICA POR TARAREO ==========
+
+def buscar_musica_por_tarareo(api_key: str, ruta_audio: str):
+    import requests
+
+    url = "https://api.audd.io/"
+    data = {
+        'api_token': api_key,
+        'return': 'spotify,deezer',
+    }
+    files = {
+        'file': open(ruta_audio, 'rb')
     }
 
-    descargados = cargar_descargados()
+    print("🎶 Analizando el tarareo...")
+    response = requests.post(url, data=data, files=files)
+    result = response.json()
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-        entries = info.get('entries', [info])  # Si es playlist, entries es lista; si no, lista con 1 elemento
+    if result.get("status") == "success" and result.get("result"):
+        cancion = result["result"]
+        print(f"✅ Canción reconocida: {cancion['title']} - {cancion['artist']}")
+        return cancion
+    else:
+        print("❌ No se pudo reconocer la canción.")
+        return None
 
-        for entry in entries:
-            titulo = entry.get('title', 'Desconocido').strip()
-            if titulo in descargados:
-                print(f"⚠️ La canción '{titulo}' ya fue descargada anteriormente. Se omite.")
-                continue
 
-            print(f"⬇️ Descargando '{titulo}' ...")
-            ydl.download([entry['webpage_url']])
-            guardar_descargado(titulo)
-            print(f"✅ Descarga de '{titulo}' completada.")
-
-def descargar_por_tarareo():
-    print("\n🎙️ Esta función te permitirá buscar canciones tarareando.")
-    print("🔧 Actualmente no implementado. Se requiere integrar Audd.io u otra API de identificación.")
-    print("🔑 Ya tenés tu API Key, así que podés integrarlo más adelante.\n")
-
+# ========== MENÚ PRINCIPAL ==========
 def menu():
     crear_carpetas()
 
+    print("🎵 Elegí fuente:")
+    print("1. Pixabay Music (por palabras clave)")
+    print("2. NCS.io (próximamente)")
+    print("0. Salir")
+
     while True:
-        print("\n🎵 Elegí fuente:")
-        print("1. Pixabay Music (por palabras clave)")
-        print("2. NCS.io (descarga vía YouTube)")
-        print("3. Tararear canción para buscar (requiere API)")
-        print("0. Salir")
-
         opcion = input("Opción (0-3): ").strip()
-
-        if opcion == "1":
-            descargar_desde_pixabay()
-        elif opcion == "2":
-            url = input("🔗 Ingresá la URL del video o playlist de NCS en YouTube: ").strip()
-            descargar_ncs(url)
-        elif opcion == "3":
-            descargar_por_tarareo()
-        elif opcion == "0":
+        if opcion == "0":
             break
+        elif opcion == "1":
+            for palabra in palabras_clave:
+                descargar_pixabay(palabra)
+                mover_y_clasificar()
+        elif opcion == "2":
+            print("🔧 Fuente NCS aún no disponible.")
         else:
-            print("❌ Opción inválida. Elegí 0, 1, 2 o 3.")
+            print("❌ Opción inválida.")
 
-    print("\n👋 Script finalizado. Presioná una tecla para cerrar.")
-    input()
-
+# ========== EJECUCIÓN ==========
 if __name__ == "__main__":
-    print("Activando entorno virtual...\nEjecutando el script...")
+    print("Activando entorno virtual...\nEjecutando el script...\n")
     menu()
